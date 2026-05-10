@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<info>
+    <name>Polycom</name>
+    <version>0.1.0</version>
+    <author>Open Paging Server</author>
+    <type>Output</type>
+    <desp>Support for push messages being sent to Polycom VVX IP Phones and audio to Polycom multicast PTT groups.</desp>
+    <updated>2026-05-10</updated>
+</info>

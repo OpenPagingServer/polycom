@@ -17,6 +17,8 @@ import pymysql
 import requests
 from dotenv import load_dotenv
 from requests.auth import HTTPDigestAuth
+from active_broadcast_store import fetch_active_broadcast
+from broadcasts import legacy_type
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -28,6 +30,7 @@ DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
+DEBUG = os.getenv("DEBUG", "").strip().lower() == "true"
 LOG_FILE = BASE_DIR / "polycom_module_debug.log"
 
 IPC_PORT = 50000
@@ -45,6 +48,8 @@ SILENCE_FRAME = b"\xff" * FRAME_SIZE
 
 active_streams = {}
 streams_lock = threading.Lock()
+column_cache = {}
+column_cache_lock = threading.Lock()
 udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 udp_sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
 udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 262144)
@@ -55,6 +60,8 @@ except OSError:
 
 
 def debug_log(message):
+    if not DEBUG:
+        return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(LOG_FILE, "a", encoding="utf-8") as handle:
         handle.write(f"[{timestamp}] {message}\n")
@@ -68,6 +75,27 @@ def db():
         database=DB_NAME,
         cursorclass=pymysql.cursors.DictCursor,
     )
+
+
+def table_columns(table_name):
+    with column_cache_lock:
+        cached = column_cache.get(table_name)
+    if cached is not None:
+        return cached
+    conn = db()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s",
+                (DB_NAME, table_name),
+            )
+            columns = {row["COLUMN_NAME"] for row in cur.fetchall()}
+    finally:
+        conn.close()
+    with column_cache_lock:
+        column_cache[table_name] = columns
+    return columns
 
 
 def send_ready_signal(module_name, stream_id):
@@ -125,11 +153,19 @@ def derive_host_id(seed_value):
 
 
 def fetch_message(message_id):
+    row = fetch_active_broadcast(message_id)
+    if row:
+        row["name"] = row.get("name") or "Broadcast"
+        row["type"] = legacy_type(row.get("type"))
+        return row
     conn = db()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT name, shortmessage, longmessage, type, color, icon FROM messages WHERE messageid=%s", (message_id,))
-            return cur.fetchone()
+            row = cur.fetchone()
+            if row:
+                row["type"] = legacy_type(row.get("type"))
+            return row
     finally:
         conn.close()
 
