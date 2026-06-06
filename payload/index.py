@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 
 import os
 import sys
@@ -70,7 +69,10 @@ def init(core_obj):
     running = True
     ensure_database_schema()
     try:
-        icon_server.start()
+        icon_port = icon_server.start()
+        log(f"polycom icon server started port={icon_port}")
+        if hasattr(message_send, "debug_log"):
+            message_send.debug_log(f"icon_server started port={icon_port}")
     except Exception as exc:
         log(f"polycom icon server error: {exc}")
     thread = threading.Thread(target=loop, daemon=True)

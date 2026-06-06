@@ -245,7 +245,3 @@ def render_action(action, endpoint_id, request, conn_factory, page, user):
             "<button class='button' type='submit'>Save Polycom Push Endpoint</button></form>"
         )
     return page("Edit Polycom Endpoint", module_body(body), "endpoints", user)
-
-
-def render_settings(request, conn_factory, page, user):
-    return page("Polycom Settings", module_body("<h1>Polycom Settings</h1><p>No additional settings are required for this module.</p>"), "endpoints", user)
