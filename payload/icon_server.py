@@ -1,19 +1,34 @@
-#!/usr/bin/env python3
 
 import mimetypes
 import os
 import threading
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
 ROOT_DIR = BASE_DIR.parent.parent
+MODULE_LOG_DIR = Path(os.getenv("OPS_ENDPOINT_MODULE_LOG_DIR", "/var/log/openpagingserver/endpointmodules"))
+LOG_FILE = MODULE_LOG_DIR / "polycom" / "icon_server.log"
+DEBUG = os.getenv("DEBUG", "").strip().lower() == "true"
 ALLOWED_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 server = None
 thread = None
 active_port = None
+
+
+def debug_log(message):
+    if not DEBUG:
+        return
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_FILE, "a", encoding="utf-8") as handle:
+            handle.write(f"[{timestamp}] {message}\n")
+    except Exception:
+        pass
 
 
 def asset_dirs():
@@ -62,16 +77,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path != "/icon":
+            debug_log(f"request path={parsed.path} status=404")
             self.send_error(404)
             return
         name = parse_qs(parsed.query).get("name", [""])[0]
         icon_path = resolve_icon(name)
         if icon_path is None:
+            debug_log(f"request icon={name!r} status=404")
             self.send_error(404)
             return
         try:
             data = icon_path.read_bytes()
-        except OSError:
+        except OSError as exc:
+            debug_log(f"request icon={name!r} path={icon_path} status=500 error={exc}")
             self.send_error(500)
             return
         content_type, _ = mimetypes.guess_type(str(icon_path))
@@ -100,8 +118,10 @@ def start():
             os.environ["POLYCOM_ICON_PORT_ACTIVE"] = str(port)
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
+            debug_log(f"icon_server started port={port}")
             return active_port
         except OSError as exc:
+            debug_log(f"icon_server bind failed port={port} error={exc}")
             last_error = exc
     raise last_error
 
@@ -112,6 +132,7 @@ def stop():
         return
     server.shutdown()
     server.server_close()
+    debug_log(f"icon_server stopped port={active_port}")
     server = None
     active_port = None
     os.environ.pop("POLYCOM_ICON_PORT_ACTIVE", None)

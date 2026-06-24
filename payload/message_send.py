@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 
 import os
 import queue
@@ -19,6 +18,7 @@ from dotenv import load_dotenv
 from requests.auth import HTTPDigestAuth
 from active_broadcast_store import fetch_active_broadcast
 from broadcasts import legacy_type
+from endpoints import MODULE_LOG_DIR, connect_endpoint_ipc
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -31,9 +31,8 @@ DB_USER = os.getenv("DB_USER")
 DB_PASS = os.getenv("DB_PASS")
 DB_NAME = os.getenv("DB_NAME")
 DEBUG = os.getenv("DEBUG", "").strip().lower() == "true"
-LOG_FILE = BASE_DIR / "polycom_module_debug.log"
+LOG_FILE = MODULE_LOG_DIR / "polycom" / "module.log"
 
-IPC_PORT = 50000
 FRAME_SIZE = 160
 ALERT_PACKETS = 31
 END_PACKETS = 12
@@ -63,6 +62,7 @@ def debug_log(message):
     if not DEBUG:
         return
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "a", encoding="utf-8") as handle:
         handle.write(f"[{timestamp}] {message}\n")
 
@@ -100,12 +100,9 @@ def table_columns(table_name):
 
 def send_ready_signal(module_name, stream_id):
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(1)
-        sock.connect(("127.0.0.1", IPC_PORT))
-        sock.sendall(f"READY {module_name} {stream_id}\n".encode("utf-8"))
-        sock.recv(16)
-        sock.close()
+        with connect_endpoint_ipc(timeout=1) as sock:
+            sock.sendall(f"READY {module_name} {stream_id}\n".encode("utf-8"))
+            sock.recv(16)
         debug_log(f"READY sent module={module_name} stream={stream_id}")
     except Exception as exc:
         debug_log(f"READY failed module={module_name} stream={stream_id} error={exc}")
